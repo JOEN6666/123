@@ -1,0 +1,239 @@
+#include <REG51.H>		 //包含头文件
+#include <intrins.h>
+#define uchar unsigned char	 //宏定义方便以后用
+#define uint unsigned int  
+#define ulong unsigned long
+
+
+//定义ADC的接口
+#define		ADC_DATA		P1		
+sbit  		ADC_EOC 		= P3^5;              
+sbit  		ADC_CLK 		= P3^7;                
+sbit  		ADC_START 		= P3^4;            
+sbit  		ADC_OE 			= P3^6;
+
+//定义LED的指示灯接口
+sbit LED_RED = P2^7;
+
+
+//LCD port
+sbit LcdRs= P2^0;
+sbit LcdRw= P2^1;
+sbit LcdEn= P2^2;
+#define DBPort   P0
+
+
+//向LCD写入命令或数据
+************************************************************
+#define LCD_COMMAND			0      // Command
+#define LCD_DATA			1      // Data
+#define LCD_CLEAR_SCREEN	0x01      // 清屏
+#define LCD_HOMING  		0x02      // 光标返回原点
+
+
+//设置显示模式
+************************************************************
+#define LCD_SHOW			0x04    //显示开
+#define LCD_HIDE			0x00    //显示关	  
+
+#define LCD_CURSOR			0x02 	//显示光标
+#define LCD_NO_CURSOR		0x00    //无光标		     
+
+#define LCD_FLASH			0x01    //光标闪动
+#define LCD_NO_FLASH		0x00    //光标不闪动
+
+//内部等待函数
+**************************************************************************
+unsigned char LCD_Wait(void)
+{
+  LcdRs=0;
+  LcdRw=1;	_nop_();
+  LcdEn=1;	_nop_();
+  _nop_();
+  _nop_();
+  _nop_();
+  _nop_();
+  _nop_();
+  _nop_();
+  _nop_();
+  //while(DBPort&0x80);
+ 
+    LcdEn=0;
+  return DBPort;		
+}
+
+void LCD_Write(bit style, unsigned char input)
+{
+  LcdEn=0;
+  LcdRs=style;
+  LcdRw=0;		_nop_();
+  DBPort=input;	_nop_();//注意顺序
+  LcdEn=1;		_nop_();//注意顺序
+  LcdEn=0;		_nop_();
+  LCD_Wait();	
+}
+
+void LCD_SetDisplay(unsigned char DisplayMode)
+{
+  LCD_Write(LCD_COMMAND, 0x08|DisplayMode);	
+}
+ 
+//设置输入模式
+************************************************************
+#define LCD_AC_UP			0x02
+#define LCD_AC_DOWN			0x00      // default
+
+#define LCD_MOVE			0x01      // 画面可平移
+#define LCD_NO_MOVE			0x00      //default
+
+void LCD_SetInput(unsigned char InputMode)
+{
+  LCD_Write(LCD_COMMAND, 0x04|InputMode);
+}
+
+
+//初始化
+LCD************************************************************
+void LCD_Initial()
+{
+  LcdEn=0;
+  LCD_Write(LCD_COMMAND,0x38);           //8位数据端口,2行显示,5*7点阵
+  LCD_Write(LCD_COMMAND,0x38);
+  LCD_SetDisplay(LCD_SHOW|LCD_NO_CURSOR);    //开启显示, 无光标
+  LCD_Write(LCD_COMMAND,LCD_CLEAR_SCREEN);   //清屏
+  LCD_SetInput(LCD_AC_UP|LCD_NO_MOVE);       //AC递增, 画面不动
+}
+
+//************************************************************************
+void GotoXY(unsigned char x, unsigned char y)
+{
+  if(y==0)
+    LCD_Write(LCD_COMMAND,0x80|x);
+  if(y==1)
+    LCD_Write(LCD_COMMAND,0x80|(x-0x40));
+}
+
+void Print(unsigned char *str)	 //在LCD上显示数据，内部调用
+{
+  while(*str!='\0')
+  {
+    LCD_Write(LCD_DATA,*str);
+    str++;
+  }
+}
+
+void LCD_Print(unsigned char x, unsigned char y, unsigned char *str) //指定的位置打印指定数据
+{
+  GotoXY(x,y);
+  Print(str);
+}
+
+void LCD_Print_num(unsigned char x, unsigned char y,long int temp_num) //指定的位置显示数值
+{
+  uchar temp_tab[7]=0;
+  long int num=0;
+  uchar i=0;
+  num=temp_num;
+  GotoXY(x,y);
+  if(num<0)
+  {
+    num=0-num;
+    LCD_Write(LCD_DATA,'-');
+  }
+  temp_tab[0]=num/1000000%10+0x30;
+  temp_tab[1]=num/100000%10+0x30;
+  temp_tab[2]=num/10000%10+0x30;
+  temp_tab[3]=num/1000%10+0x30;
+  temp_tab[4]=num/100%10+0x30;  
+  temp_tab[5]=num/10%10+0x30;
+  temp_tab[6]=num%10+0x30;
+  for(i=0;i<7;i++)
+  {
+    if(temp_tab[i]!=0x30)break;
+  }
+  
+  if(i==7)
+  {
+    LCD_Write(LCD_DATA,0x30);
+  }
+  else
+  {
+    while(i<7)
+    {
+      LCD_Write(LCD_DATA,temp_tab[i]);
+      i++;
+    }
+  }
+}
+
+//============================
+//ADC获取函数
+//============================
+uchar ADC_GET()
+{
+	ADC_START = 0;
+	ADC_OE = 0;
+	ADC_START = 1;
+	ADC_START = 0;
+	while(ADC_EOC == 0);
+	ADC_OE = 1;	  
+	return ADC_DATA;   
+}
+//简单延时函数
+void delay(unsigned int i)
+{
+	while(i--);
+}
+//*****************************
+//**显示数据
+//*****************************
+void Display_data(uint temp)
+{ 
+	LCD_Print_num(0,1,temp);
+	Print("        ");
+
+}
+//************************************
+//定时器初始化
+//************************************
+void Time0_init()
+{
+	TMOD |= 0x02;			 //使用模式2,8位定时器
+	TH0=256-50;//  50US
+  	TL0=256-50;//
+	EA    = 1;  //总中断
+	ET0   = 1;//定时器0初始化
+	TR0   = 1;
+
+}
+void main()
+{
+  uint temp_ad_num=0;
+  uint temp_ad_tab[10];
+  uchar i=0;
+  LCD_Initial();	//初始化液晶显示
+  LCD_Print(0,0,"Light_value:"); //首行显示"Light_value:"
+  Time0_init();					//初始化定时器
+  while(1)
+  {
+    temp_ad_num=0;
+    for(i=0;i<10;i++)
+	{
+	  temp_ad_tab[i]= ADC_GET();	//读取ADC数值
+	  temp_ad_num+=temp_ad_tab[i];	//10次AD数值求和
+	  delay(10);
+	}  
+	temp_ad_num=temp_ad_num/10;	//求平均值进行AD滤波  
+    Display_data(temp_ad_num);		//显示数据
+	LED_RED=~LED_RED;	//工作指示灯
+	delay(temp_ad_num*100);
+  }
+}
+
+//===========================
+//定时器0中断，为ADC提供时钟信号
+//===========================
+void timer0() interrupt 1
+{
+	ADC_CLK = ~ADC_CLK;
+}
